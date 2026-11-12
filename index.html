@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Mis Hábitos</title>
+<meta name="description" content="Crea hábitos, recibe alarmas y revisa tu cumplimiento.">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Hábitos">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<main id="view" aria-live="polite"></main>
+
+<nav id="tabs" aria-label="Secciones">
+  <button data-tab="today" class="active"><span class="ti">☀️</span><span>Hoy</span></button>
+  <button data-tab="summary"><span class="ti">📊</span><span>Resumen</span></button>
+  <button data-tab="habits"><span class="ti">🎯</span><span>Hábitos</span></button>
+  <button data-tab="settings"><span class="ti">⚙️</span><span>Ajustes</span></button>
+</nav>
+
+<div id="sheet-backdrop" hidden></div>
+<section id="sheet" hidden role="dialog" aria-modal="true"></section>
+<section id="alarm" hidden role="alertdialog" aria-modal="true"></section>
+<div id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>
