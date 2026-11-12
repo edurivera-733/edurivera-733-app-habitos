@@ -93,6 +93,26 @@ function streak(h) {
   }
   return n;
 }
+const GOAL_DAYS = 66;
+const MILESTONES = [3, 7, 14, 21, 30, 45, 66];
+function bestStreak(h) {
+  let best = 0, n = 0;
+  for (let k = h.created, t = today(); k <= t; k = addDays(k, 1)) {
+    if (!scheduled(h, k)) continue;
+    if (isDone(h, k)) { if (++n > best) best = n; } else if (k !== t) n = 0;
+  }
+  return best;
+}
+// Al llegar a 66 días seguidos el hábito queda marcado como logrado.
+function checkGoals() {
+  let changed = false;
+  for (const h of state.habits) {
+    if (h.achieved || streak(h) < GOAL_DAYS) continue;
+    h.achieved = today(); changed = true;
+    ui.alarmQueue.push({ id: h.id, goal: true });
+  }
+  if (changed) { save(); beep(); showAlarm(); }
+}
 function stopTimer(h) {
   const start = state.timers[h.id];
   if (!start) return;
@@ -134,80 +154,150 @@ function viewToday() {
     else if (running) act = `<button class="act run" data-a="timer" data-id="${h.id}" aria-label="Detener cronómetro"><span data-clock="${h.id}">${fmtClock(v)}</span>&nbsp;■</button>`;
     else if (isToday && !d) act = `<button class="act" data-a="timer" data-id="${h.id}" aria-label="Iniciar cronómetro de ${esc(h.name)}">▶</button>`;
     else act = `<button class="act ${d ? 'done' : ''}" data-a="detail" data-id="${h.id}" aria-label="Registrar ${esc(h.name)}">${d ? '✓' : '+'}</button>`;
+    const st = streak(h);
+    const bar = h.type === 'count' && h.goal <= 20
+      ? `<div class="segs ${h.goal <= 10 ? 'big' : ''}" role="group" aria-label="${esc(h.unit || 'veces')} registrados">${Array.from({ length: h.goal }, (_, i) =>
+        `<button data-a="setcount" data-id="${h.id}" data-n="${i + 1}" class="${i < v ? 'on' : ''}" aria-label="${i + 1} ${esc(h.unit || '')}" aria-pressed="${i < v}">${h.goal <= 10 ? h.icon : ''}</button>`).join('')}</div>`
+      : `<div class="bar"><i data-bar="${h.id}" style="width:${Math.min(100, v / goalUnits(h) * 100)}%"></i></div>`;
     const next = isToday && !d ? (h.reminders.filter(t => t > nowHM())[0] || '') : '';
     html += `<div class="card ${d ? 'done-card' : ''}" style="--c:${h.color}">
       <div class="row"><button class="row grow" data-a="detail" data-id="${h.id}" style="text-align:left">
         <div class="icon">${h.icon}</div>
-        <div class="grow"><div class="name">${esc(h.name)}</div><div class="meta" data-prog="${h.id}">${progressText(h, k)}${next ? ` · ⏰ ${next}` : ''}</div></div>
-      </button>${act}</div>
-      <div class="bar"><i data-bar="${h.id}" style="width:${Math.min(100, v / goalUnits(h) * 100)}%"></i></div></div>`;
+        <div class="grow"><div class="name">${esc(h.name)}</div><div class="meta" data-prog="${h.id}">${progressText(h, k)}${next ? ` · ⏰ ${next}` : ''}${h.achieved ? ' · 🏆' : st ? ` · 🔥 ${st}/${GOAL_DAYS}` : ''}</div></div>
+      </button>${act}</div>${bar}</div>`;
   }
-  return html + `<p class="hint">Toca un hábito para registrar tiempo o corregir el avance.</p>`;
+  const age = state.lastBackup ? Math.floor((Date.now() - state.lastBackup) / 864e5) : null;
+  if (isToday && Object.keys(state.log).length >= 3 && (age === null || age >= 7) && Date.now() - (state.backupSnooze || 0) > 7 * 864e5) {
+    html += `<div class="card"><div class="row"><div class="icon sm">☁️</div><div class="grow"><div class="name">Guarda una copia en la nube</div>
+      <div class="meta">${age === null ? 'Aún no tienes una copia de tus datos.' : `Tu última copia es de hace ${age} días.`}</div></div></div>
+      <div class="two" style="margin-top:10px"><button class="btn sec" style="margin:0" data-a="backup-later">Ahora no</button><button class="btn" style="margin:0" data-a="backup">Guardar copia</button></div></div>`;
+  }
+  return html + `<p class="hint">Toca un hábito para registrar tiempo o corregir el avance.${list.some(h => h.type === 'count') ? ' En los de cantidad, toca la barra para marcar cada uno.' : ''}</p>`;
 }
 
-function periodDays() {
+function periodDays(shift = 0) {
   const n = ui.period === 'day' ? 1 : ui.period === 'week' ? 7 : 30;
   const out = [];
-  for (let i = n - 1; i >= 0; i--) out.push(addDays(today(), -i));
+  for (let i = n - 1; i >= 0; i--) out.push(addDays(today(), -i - shift * n));
   return out;
 }
+function dayStats(k) {
+  const l = state.habits.filter(h => scheduled(h, k));
+  return { n: l.length, d: l.filter(h => isDone(h, k)).length };
+}
+function periodPct(days) {
+  let n = 0, d = 0;
+  for (const k of days) { const s = dayStats(k); n += s.n; d += s.d; }
+  return { n, d, pct: n ? d / n : null };
+}
+function motivation() {
+  const k = today(), list = state.habits.filter(h => scheduled(h, k)), pending = list.filter(h => !isDone(h, k));
+  if (list.length && !pending.length) return ['🎉', '¡Día perfecto!', `Cumpliste todo lo de hoy. Un paso más hacia los ${GOAL_DAYS} días.`];
+  const risk = pending.map(h => [streak(h), h]).sort((a, b) => b[0] - a[0])[0];
+  if (risk && risk[0] >= 2) return ['🔥', `No rompas tu racha de ${risk[0]} días`, `Hoy te falta «${risk[1].name}» para seguir sumando.`];
+  const q = [
+    ['🌱', 'Cada día cuenta', `Un hábito se forma repitiéndolo: ${GOAL_DAYS} días seguidos y será parte de ti.`],
+    ['💪', 'Empieza por el más fácil', 'Cumplir uno te da impulso para el siguiente.'],
+    ['⏱️', 'Solo el mínimo', 'No tiene que ser perfecto: cumple el tiempo mínimo y suma el día.'],
+    ['🚀', 'Hoy es un buen día', 'Lo que hagas hoy es la racha de la que presumirás mañana.']
+  ];
+  return q[Math.floor(Date.now() / 864e5) % q.length];
+}
+function quickAct(h) {
+  if (h.type === 'check') return `<button class="act" data-a="toggle" data-id="${h.id}" aria-label="Marcar ${esc(h.name)}">✓</button>`;
+  if (h.type === 'count') return `<button class="act" data-a="inc" data-id="${h.id}" aria-label="Sumar uno a ${esc(h.name)}">+1</button>`;
+  return `<button class="act" data-a="detail" data-id="${h.id}" aria-label="Registrar ${esc(h.name)}">+</button>`;
+}
+function dayDetail(k) {
+  const list = state.habits.filter(h => scheduled(h, k));
+  let t = fromKey(k).toLocaleDateString('es', { weekday: 'long', day: 'numeric', month: 'long' });
+  t = t[0].toUpperCase() + t.slice(1);
+  let html = `<div class="daybox"><div class="row"><b class="grow">${t}</b><button class="link" data-a="goto-day" data-k="${k}">Editar este día ›</button></div>`;
+  if (!list.length) html += `<div class="meta">Sin hábitos programados.</div>`;
+  for (const h of list) {
+    const v = value(h, k);
+    const b = isDone(h, k) ? ['ok', 'Cumplido'] : v > 0 ? ['warn', 'Bajo el mínimo'] : k === today() ? ['na', 'Pendiente'] : ['bad', 'No realizado'];
+    html += `<div class="kv"><span>${h.icon} ${esc(h.name)}${h.type !== 'check' && v ? ` · ${h.type === 'time' ? fmtDur(v) : v + ' ' + esc(h.unit || '')}` : ''}</span><span class="badge ${b[0]}">${b[1]}</span></div>`;
+  }
+  return html + `</div>`;
+}
 function viewSummary() {
-  const days = periodDays();
+  const days = periodDays(), k0 = today();
   let html = `<div class="head"><div><h1>Resumen</h1><div class="sub">${ui.period === 'day' ? 'Hoy' : `Últimos ${days.length} días`}</div></div></div>
     <div class="seg">${[['day', 'Hoy'], ['week', '7 días'], ['month', '30 días']].map(([p, l]) => `<button data-a="period" data-p="${p}" class="${ui.period === p ? 'on' : ''}">${l}</button>`).join('')}</div>`;
   if (!state.habits.length) return html + `<div class="empty"><div class="e">📊</div><p>Crea tu primer hábito para ver tu resumen.</p></div>`;
 
-  let sched = 0, done = 0, perfect = 0;
-  const daily = days.map(k => {
-    const l = state.habits.filter(h => scheduled(h, k)), d = l.filter(h => isDone(h, k)).length;
-    sched += l.length; done += d;
-    if (l.length && d === l.length) perfect++;
-    return { k, pct: l.length ? d / l.length : null };
-  });
-  const pct = sched ? done / sched : 0;
-  html += `<div class="card"><div class="hero">${ring(pct, 'Cumplimiento general')}<div><div class="big">${done} de ${sched} metas cumplidas</div>
-    <div class="sub">${ui.period === 'day' ? (pct === 1 ? 'Cumpliste todo lo de hoy 🎉' : 'Aún puedes completar el día.') : `${perfect} ${perfect === 1 ? 'día perfecto' : 'días perfectos'} en el período`}</div></div></div>`;
-  if (days.length > 1) {
-    html += `<div class="chart" role="img" aria-label="Porcentaje de cumplimiento por día">${daily.map((d, i) => {
-      const lab = days.length <= 7 ? DAY_LETTERS[fromKey(d.k).getDay()] : (i % 5 === 4 || i === days.length - 1 ? fromKey(d.k).getDate() : '');
-      const t = `${fromKey(d.k).toLocaleDateString('es', { day: 'numeric', month: 'short' })}: ${d.pct === null ? 'sin hábitos' : Math.round(d.pct * 100) + '%'}`;
-      return `<div class="col" title="${t}"><div class="b ${d.pct ? '' : 'zero'}" style="height:${d.pct ? Math.max(4, d.pct * 100) : 2}%"></div><div class="l">${lab}</div></div>`;
+  const m = motivation();
+  html += `<div class="card moti row"><div class="e">${m[0]}</div><div class="grow"><div class="big">${m[1]}</div><div class="sub">${m[2]}</div></div></div>`;
+
+  const pending = state.habits.filter(h => scheduled(h, k0) && !isDone(h, k0));
+  if (pending.length) {
+    html += `<h2>Hoy te falta</h2><div class="card">${pending.map(h => `<div class="row todo" style="--c:${h.color}"><div class="icon sm">${h.icon}</div>
+      <div class="grow"><div class="name">${esc(h.name)}</div><div class="meta">${progressText(h, k0)}</div></div>${quickAct(h)}</div>`).join('')}</div>`;
+  }
+
+  const cur = periodPct(days), prev = periodPct(periodDays(1));
+  const perfect = days.filter(k => { const s = dayStats(k); return s.n && s.d === s.n; }).length;
+  let trend = '';
+  if (ui.period !== 'day' && prev.pct !== null && cur.pct !== null) {
+    const diff = Math.round((cur.pct - prev.pct) * 100);
+    trend = diff > 0 ? `<span class="badge ok">▲ ${diff} puntos vs. período anterior</span>` : diff < 0 ? `<span class="badge bad">▼ ${-diff} puntos vs. período anterior</span>` : `<span class="badge na">Igual que el período anterior</span>`;
+  }
+  html += `<h2>Cumplimiento</h2><div class="card"><div class="hero">${ring(cur.pct || 0, 'Cumplimiento general')}<div><div class="big">${cur.d} de ${cur.n} metas cumplidas</div>
+    <div class="sub">${ui.period === 'day' ? (cur.pct === 1 ? 'Cumpliste todo lo de hoy 🎉' : 'Aún puedes completar el día.') : `${perfect} ${perfect === 1 ? 'día perfecto' : 'días perfectos'}`}</div>${trend ? `<div style="margin-top:6px">${trend}</div>` : ''}</div></div>`;
+  if (ui.period === 'week') {
+    html += `<div class="chart">${days.map(k => {
+      const s = dayStats(k), p = s.n ? s.d / s.n : 0;
+      return `<button class="col ${ui.selDay === k ? 'sel' : ''}" data-a="sel-day" data-k="${k}" aria-label="${k}: ${Math.round(p * 100)}%">
+        <span class="pc">${s.n ? Math.round(p * 100) + '%' : ''}</span><span class="b ${p ? '' : 'zero'} ${p === 1 ? 'full' : ''}" style="height:${p ? Math.max(6, p * 100) : 3}%"></span><span class="l">${DAY_LETTERS[fromKey(k).getDay()]}</span></button>`;
+    }).join('')}</div>`;
+  } else if (ui.period === 'month') {
+    const padN = (fromKey(days[0]).getDay() + 6) % 7;
+    html += `<div class="cal">${DAY_ORDER.map(d => `<span class="l">${DAY_LETTERS[d]}</span>`).join('')}${'<span></span>'.repeat(padN)}${days.map(k => {
+      const s = dayStats(k), p = s.n ? s.d / s.n : 0;
+      return `<button class="${ui.selDay === k ? 'sel' : ''} ${p === 1 ? 'full' : ''}" style="--p:${Math.round(p * 100)}%" data-a="sel-day" data-k="${k}" aria-label="${k}: ${Math.round(p * 100)}%">${fromKey(k).getDate()}</button>`;
     }).join('')}</div>`;
   }
-  html += `</div><h2>Por hábito</h2>`;
+  if (ui.period !== 'day') html += ui.selDay && days.includes(ui.selDay) ? dayDetail(ui.selDay) : `<p class="hint" style="text-align:center">Toca un día para ver el detalle.</p>`;
+  html += `</div><h2>Camino a los ${GOAL_DAYS} días</h2>`;
 
   for (const h of state.habits) {
+    const s = streak(h), best = Math.max(bestStreak(h), h.achieved ? GOAL_DAYS : 0), open = ui.open === h.id;
     const sd = days.filter(k => scheduled(h, k));
     const dn = sd.filter(k => isDone(h, k)).length;
     const total = sd.reduce((a, k) => a + value(h, k), 0);
     const required = sd.length * goalUnits(h);
-    const goalBadge = !sd.length ? ['na', 'Sin días programados'] : dn === sd.length ? ['ok', 'Meta cumplida'] : dn ? ['warn', 'Cumplida en parte'] : ['bad', 'No cumplida'];
-    html += `<div class="card" style="--c:${h.color}"><div class="row"><div class="icon">${h.icon}</div>
-      <div class="grow"><div class="name">${esc(h.name)}</div><div class="meta">${sd.length ? `${dn} de ${sd.length} ${sd.length === 1 ? 'día' : 'días'} ${streak(h) ? ` · racha ${streak(h)} 🔥` : ''}` : 'No programado en este período'}</div></div>
-      <span class="badge ${goalBadge[0]}">${goalBadge[1]}</span></div>`;
-    if (sd.length) {
-      html += `<div class="bar"><i style="width:${dn / sd.length * 100}%"></i></div>`;
-      if (h.type === 'time') {
+    const nextM = MILESTONES.find(x => x > s);
+    const status = h.achieved ? `🏆 Objetivo logrado · racha actual ${s}` : s ? `🔥 Día ${s} de ${GOAL_DAYS} · ${nextM === GOAL_DAYS ? `faltan ${GOAL_DAYS - s} para el objetivo` : `próxima medalla en ${nextM - s}`}` : 'Cúmplelo hoy para empezar tu racha';
+    html += `<div class="card" style="--c:${h.color}"><button class="row full" data-a="open-h" data-id="${h.id}" aria-expanded="${open}"><div class="icon">${h.icon}</div>
+      <div class="grow"><div class="name">${esc(h.name)}</div><div class="meta">${status}</div></div><span class="chev">${open ? '▴' : '▾'}</span></button>
+      <div class="bar tall"><i style="width:${Math.min(100, (h.achieved ? GOAL_DAYS : s) / GOAL_DAYS * 100)}%"></i></div>
+      <div class="medals">${MILESTONES.map(x => `<span class="${best >= x ? 'on' : ''}" title="${x} días seguidos">${x === GOAL_DAYS ? '🏆' : x}</span>`).join('')}</div>`;
+    if (open) {
+      const gb = !sd.length ? ['na', 'Sin días programados'] : dn === sd.length ? ['ok', 'Cumplida'] : dn ? ['warn', 'En parte'] : ['bad', 'No cumplida'];
+      html += `<div class="kv"><span>Meta del período (${dn} de ${sd.length} ${sd.length === 1 ? 'día' : 'días'})</span><span class="badge ${gb[0]}">${gb[1]}</span></div>`;
+      if (sd.length && h.type === 'time') {
         const ok = total >= required;
         html += `<div class="kv"><span>Tiempo realizado</span><b>${fmtDur(total)}</b></div>
           <div class="kv"><span>Tiempo mínimo (${h.goal} min × ${sd.length})</span><b>${fmtDur(required)}</b></div>
           <div class="kv"><span>¿Se cumplió el tiempo mínimo?</span><span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'Sí' : `No, faltan ${fmtDur(Math.ceil((required - total) / 60) * 60)}`}</span></div>`;
-      } else if (h.type === 'count') {
+      } else if (sd.length && h.type === 'count') {
         const ok = total >= required;
         html += `<div class="kv"><span>Total</span><b>${total} de ${required} ${esc(h.unit || 'veces')}</b></div>
           <div class="kv"><span>¿Se alcanzó la cantidad mínima?</span><span class="badge ${ok ? 'ok' : 'bad'}">${ok ? 'Sí' : `No, faltan ${required - total}`}</span></div>`;
       }
+      html += `<div class="kv"><span>Mejor racha</span><b>${best} ${best === 1 ? 'día' : 'días'}</b></div>`;
+      if (h.achieved) html += `<div class="kv"><span>Objetivo de ${GOAL_DAYS} días logrado</span><b>${fromKey(h.achieved).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}</b></div>`;
       if (days.length > 1) {
         html += `<div class="dots">${days.map(k => {
-          const c = !scheduled(h, k) ? 'off' : isDone(h, k) ? 'ok' : value(h, k) > 0 ? 'part' : k === today() ? '' : 'miss';
+          const c = !scheduled(h, k) ? 'off' : isDone(h, k) ? 'ok' : value(h, k) > 0 ? 'part' : k === k0 ? '' : 'miss';
           return `<i class="${c}" title="${k}"></i>`;
-        }).join('')}</div>`;
+        }).join('')}</div><div class="legend"><span><i style="background:var(--ok)"></i>Cumplido</span><span><i style="background:var(--warn)"></i>Bajo el mínimo</span><span><i style="background:color-mix(in srgb, var(--bad) 55%, var(--track))"></i>No realizado</span></div>`;
       }
     }
     html += `</div>`;
   }
-  if (days.length > 1) html += `<div class="legend"><span><i style="background:var(--ok)"></i>Cumplido</span><span><i style="background:var(--warn)"></i>Bajo el mínimo</span><span><i style="background:color-mix(in srgb, var(--bad) 55%, var(--track))"></i>No realizado</span></div>`;
-  return html;
+  return html + `<p class="hint">La racha cuenta los días programados seguidos en que cumpliste la meta. Al llegar a ${GOAL_DAYS}, el hábito se da por logrado.</p>`;
 }
 
 function habitDesc(h) {
@@ -240,13 +330,19 @@ function viewSettings() {
   </div>
   <p class="hint">Dentro de la app las alarmas suenan mientras está abierta. Para recibirlas siempre, usa «Enviar alarmas al Calendario»: el iPhone te avisará a la hora de cada hábito. Si cambias horarios, vuelve a enviarlas.</p>
   ${standalone ? '' : `<h2>Instalar en el iPhone</h2><div class="card"><div class="meta">1. Abre esta página en <b>Safari</b>.<br>2. Toca <b>Compartir</b> (el cuadrado con la flecha).<br>3. Elige <b>Agregar a pantalla de inicio</b>.<br>4. Abre «Hábitos» desde el ícono nuevo.</div></div>`}
+  <h2>Copia en la nube</h2>
+  <div class="card">
+    <button class="list-btn" data-a="backup"><span>Guardar en iCloud o Google Drive<small>${state.lastBackup ? 'Última copia: ' + new Date(state.lastBackup).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Aún no has guardado una copia'}</small></span><span class="chev">›</span></button>
+    <button class="list-btn" data-a="restore"><span>Restaurar desde iCloud o Google Drive<small>Reemplaza los datos actuales por los de una copia</small></span><span class="chev">›</span></button>
+  </div>
+  <div class="card"><div class="meta"><b>Para guardar:</b> toca «Guardar…», elige <b>Guardar en Archivos</b> y luego <b>iCloud Drive</b> o <b>Google Drive</b>. También puedes elegir directamente la app <b>Drive</b>.<br><br>
+    <b>Para restaurar:</b> toca «Restaurar…» y busca el archivo <b>habitos-copia</b> en iCloud Drive o Google Drive.<br><br>
+    <b>¿No aparece Google Drive?</b> Instala la app Google Drive e inicia sesión. Luego abre Archivos › Explorar › ⋯ › Editar y activa Google Drive.</div></div>
+  <p class="hint">Tus datos viven en este iPhone; la copia es un archivo que tú guardas en tu nube. La app te recordará hacerla cada semana.</p>
   <h2>Datos</h2>
   <div class="card">
-    <button class="list-btn" data-a="backup"><span>Guardar copia de seguridad<small>Descarga tus hábitos y registros</small></span><span class="chev">›</span></button>
-    <button class="list-btn" data-a="restore"><span>Restaurar copia<small>Reemplaza los datos actuales</small></span><span class="chev">›</span></button>
     <button class="list-btn" data-a="reset" style="color:var(--bad)"><span>Borrar todo<small>Elimina hábitos y registros</small></span></button>
   </div>
-  <p class="hint">Tus datos se guardan solo en este dispositivo.</p>
   <input type="file" id="file" accept="application/json,.json" hidden>`;
 }
 
@@ -354,6 +450,14 @@ function triggerAlarm(h, test) {
 function showAlarm() {
   const el = $('#alarm'), a = ui.alarmQueue[0];
   if (!a) { el.hidden = true; return; }
+  if (a.goal) {
+    const g = habit(a.id);
+    if (!g) { ui.alarmQueue.shift(); return showAlarm(); }
+    el.innerHTML = `<div class="alarm-box pop"><div class="e">🏆</div><h3>¡Objetivo logrado!</h3>
+      <p>${GOAL_DAYS} días seguidos de «${esc(g.name)}». Ya es parte de ti: sigue así.</p>
+      <button class="btn" data-a="al-close">¡Genial!</button></div>`;
+    el.hidden = false; return;
+  }
   const h = a.test ? { icon: '⏰', name: 'Alarma de prueba', type: 'check', goal: 1 } : habit(a.id);
   if (!h) { ui.alarmQueue.shift(); return showAlarm(); }
   const main = a.test ? '' : h.type === 'time' ? `<button class="btn" data-a="al-start">▶ Iniciar ahora</button>` : `<button class="btn" data-a="al-done">${h.type === 'count' ? '+1 Registrar' : '✓ Ya lo hice'}</button>`;
@@ -411,13 +515,14 @@ function buildICS() {
 async function shareFile(name, type, content) {
   const file = new File([content], name, { type });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try { await navigator.share({ files: [file] }); return; }
-    catch (e) { if (e.name === 'AbortError') return; }
+    try { await navigator.share({ files: [file] }); return true; }
+    catch (e) { if (e.name === 'AbortError') return false; }
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(file); a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  return true;
 }
 
 /* ---------- Acciones ---------- */
@@ -426,11 +531,23 @@ function toast(msg) {
   const t = $('#toast'); t.textContent = msg; t.hidden = false;
   clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2600);
 }
-function celebrate(h, before) { if (!before && isDone(h, ui.day)) toast(`¡${h.name} cumplido! 🎉`); }
+function celebrate(h, before) {
+  if (before || !isDone(h, ui.day)) return;
+  const s = streak(h);
+  toast(ui.day === today() && MILESTONES.includes(s) && s < GOAL_DAYS ? `🔥 ¡${s} días seguidos de ${h.name}!` : `¡${h.name} cumplido! 🎉`);
+}
 
 const actions = {
   day(el) { const k = addDays(ui.day, +el.dataset.n); if (k <= today()) ui.day = k; },
-  period(el) { ui.period = el.dataset.p; },
+  period(el) { ui.period = el.dataset.p; ui.selDay = null; },
+  'sel-day'(el) { ui.selDay = ui.selDay === el.dataset.k ? null : el.dataset.k; },
+  'open-h'(el) { ui.open = ui.open === el.dataset.id ? null : el.dataset.id; },
+  'goto-day'(el) { ui.tab = 'today'; ui.day = el.dataset.k; scrollTo(0, 0); },
+  setcount(el) {
+    const h = habit(el.dataset.id), b = isDone(h, ui.day), n = +el.dataset.n;
+    setValue(h, ui.day, value(h, ui.day) === n ? n - 1 : n); celebrate(h, b);
+  },
+  'backup-later'() { state.backupSnooze = Date.now(); save(); },
   toggle(el) { const h = habit(el.dataset.id), b = isDone(h, ui.day); setValue(h, ui.day, b ? 0 : 1); celebrate(h, b); },
   inc(el) { const h = habit(el.dataset.id), b = isDone(h, ui.day); setValue(h, ui.day, value(h, ui.day) + 1); celebrate(h, b); },
   timer(el) {
@@ -504,7 +621,9 @@ const actions = {
     if (!state.habits.some(h => h.reminders.length)) { toast('Ningún hábito tiene alarmas'); return false; }
     shareFile('habitos-alarmas.ics', 'text/calendar', buildICS()); return false;
   },
-  backup() { shareFile(`habitos-copia-${today()}.json`, 'application/json', JSON.stringify(state)); return false; },
+  async backup() {
+    if (await shareFile(`habitos-copia-${today()}.json`, 'application/json', JSON.stringify(state))) { state.lastBackup = Date.now(); save(); }
+  },
   restore() { $('#file').click(); return false; },
   reset() {
     if (!confirm('¿Borrar todos los hábitos y registros? No se puede deshacer.')) return false;
@@ -520,11 +639,12 @@ function sheetFormKeep() { const s = $('#sheet').scrollTop; sheetForm(); $('#she
 document.addEventListener('click', async e => {
   unlockAudio();
   const tab = e.target.closest('#tabs button');
-  if (tab) { ui.tab = tab.dataset.tab; if (ui.tab === 'today') ui.day = today(); render(); scrollTo(0, 0); return; }
+  if (tab) { ui.tab = tab.dataset.tab; ui.day = today(); ui.selDay = null; render(); scrollTo(0, 0); return; }
   if (e.target.id === 'sheet-backdrop') { closeSheet(); return; }
   const el = e.target.closest('[data-a]');
   if (!el || !actions[el.dataset.a]) return;
   const r = await actions[el.dataset.a](el);
+  checkGoals();
   if (r !== false) render();
 });
 document.addEventListener('change', e => {
@@ -584,3 +704,4 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { ti
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 render();
 tick();
+checkGoals();

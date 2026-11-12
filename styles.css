@@ -191,3 +191,41 @@ label.f { display: block; font-size: 13px; color: var(--muted); margin: 14px 4px
   background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
   max-width: 90%; text-align: center;
 }
+
+/* Barra por unidades (vasos de agua, etc.) */
+.segs { display: flex; gap: 4px; margin-top: 10px; }
+.segs button { flex: 1; min-width: 0; height: 8px; border-radius: 4px; background: var(--track); }
+.segs button.on { background: var(--c, var(--accent)); }
+.segs.big button { height: 36px; border-radius: 10px; font-size: 18px; line-height: 1; filter: grayscale(1); opacity: .4; }
+.segs.big button.on { filter: none; opacity: 1; background: color-mix(in srgb, var(--c, var(--accent)) 24%, transparent); }
+
+/* Resumen interactivo */
+.moti .e { font-size: 38px; line-height: 1; }
+.icon.sm { width: 36px; height: 36px; border-radius: 10px; font-size: 18px; }
+.todo { padding: 8px 0; border-top: 1px solid var(--line); }
+.todo:first-child { border-top: 0; padding-top: 0; }
+.todo:last-child { padding-bottom: 0; }
+.row.full { width: 100%; text-align: left; }
+.link { color: var(--accent); font-weight: 600; font-size: 14px; }
+.chart { height: 120px; }
+.chart button.col { padding: 4px 0 0; border-radius: 8px; }
+.chart .col.sel { background: var(--track); }
+.chart .pc { font-size: 10px; color: var(--muted); font-weight: 600; }
+.chart .b { flex: none; display: block; }
+.chart .b.full { background: var(--ok); }
+.chart .col { justify-content: flex-end; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin-top: 14px; text-align: center; }
+.cal .l { font-size: 11px; color: var(--muted); font-weight: 600; }
+.cal button { aspect-ratio: 1; border-radius: 10px; font-size: 13px; font-weight: 600; background: color-mix(in srgb, var(--accent) var(--p), var(--track)); }
+.cal button.full { background: var(--ok); color: #fff; }
+.cal button.sel { outline: 2px solid var(--text); outline-offset: 1px; }
+.daybox { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.daybox .kv:first-of-type { margin-top: 8px; }
+.bar.tall { height: 10px; border-radius: 5px; }
+.bar.tall > i { border-radius: 5px; }
+.medals { display: flex; gap: 5px; margin-top: 10px; }
+.medals span { flex: 1; text-align: center; font-size: 12px; font-weight: 700; padding: 5px 0; border-radius: 8px; background: var(--track); color: var(--muted); filter: grayscale(1); }
+.medals span.on { background: color-mix(in srgb, var(--c, var(--accent)) 22%, transparent); color: var(--text); filter: none; }
+.pop { animation: pop .4s cubic-bezier(.2, 1.4, .4, 1); }
+@keyframes pop { from { transform: scale(.7); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pop { animation: none; } }
