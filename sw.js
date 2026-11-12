@@ -1,6 +1,6 @@
 // Service worker: permite abrir la app sin conexión y mostrar notificaciones.
-const CACHE = 'habitos-v2';
-const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png'];
+const CACHE = 'habitos-v3';
+const FILES = ['./', 'index.html', 'styles.css', 'app.js', 'manifest.webmanifest', 'icons/app-180.png', 'icons/app-192.png', 'icons/app-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));

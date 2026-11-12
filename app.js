@@ -437,7 +437,7 @@ async function notify(title, body) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
   try {
     const reg = await navigator.serviceWorker.getRegistration();
-    if (reg) await reg.showNotification(title, { body, icon: 'icons/icon-192.png', tag: title });
+    if (reg) await reg.showNotification(title, { body, icon: 'icons/app-192.png', tag: title });
     else new Notification(title, { body });
   } catch (e) { /* sin notificaciones */ }
 }
